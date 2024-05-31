@@ -8,7 +8,7 @@ def scan_method_selection():
     print("2. Intense scan, all TCP ports (-T4 -p 1-65535)")
     print("3. Intense scan plus UDP (-sS -sU -T4)")
     print("4. Intense scan, no ping (-T4 -Pn)")
-    print("5. Ping scan (-sn)")
+    print("5. Ping scan (-sn)") # Host Discovery
     print("6. Quick scan (-T4 -F)")
     print("7. Quick scan plus (-sV -T4 -O -F --version-light)")
 
