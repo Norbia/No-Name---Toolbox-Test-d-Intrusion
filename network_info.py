@@ -3,17 +3,20 @@ import socket
 import psutil
 import pandas as pd
 import nmap
-import ipaddress
+#import time
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet
 
-# obtenir l'adresse à partir d'un nom de domaine (DNS)                       
+# obtenir l'adresse à partir d'un nom de domaine (DNS)
 #ip_address_dns = socket.gethostbyname('cyna-it.fr')
-#hostname_dns = socket.gethostbyaddr(ip_address_dns)          
+#hostname_dns = socket.gethostbyaddr(ip_address_dns)
 #print("Ip d'un DNS: " + ip_address_dns)
 #print(hostname_dns[0])
 
 # recuperer les informations
-#response = requests.get(f'http://ip-api.com/json/{ip_address_dns}')             
-#location_info = response.json()                     
+#response = requests.get(f'http://ip-api.com/json/{ip_address_dns}')
+#location_info = response.json()
 #print(location_info)
 
 # Récupérer son adresse IP
@@ -76,11 +79,10 @@ def host_discovery():
     # Scanner le réseau pour découvrir les hôtes actifs
     print("Scanning network for active hosts...")
     nm.scan(hosts=info_main_host, arguments="-sn")
-    # nm.all_hosts == type(class 'list')
 
     host_discovery_data = []
 
-    for host in nm.all_hosts():
+    for host in nm.all_hosts(): # nm.all_hosts == type(class 'list')
 
         hostname = nm[host]['hostnames'][0]['name'] if nm[host]['hostnames'] else 'N/A'
         mac_address = nm[host]['addresses'].get('mac', 'N/A')
@@ -90,20 +92,96 @@ def host_discovery():
 
         host_discovery_data.append([hostname, host, status, latency, mac_address, vendor])
 
-        #Affichage CLI propre comme Zenmap
-        print(f"Nmap scan report for {hostname} ({host})")
-        print(f"Host is {status} ({latency} latency).")
-        print(f"MAC Address: {mac_address} ({vendor})")
-        print()
-
     # Créer une DataFrame à partir de la liste de données des hôtes découverts
     columns = ['Hostname', 'IP Address', 'Status', 'Latency', 'MAC Address', 'Vendor']
     host_discovery_df = pd.DataFrame(host_discovery_data, columns=columns)
 
-    #Mise en forme du DataFrame
+    # Mise en forme du DataFrame
     host_discovery_df = host_discovery_df.sort_values('IP Address', ascending=True)
     print(host_discovery_df)
     return host_discovery_df
 
-get_network_interfaces_info()
-host_discovery()
+def port_scan(host_discovery_df, num_hosts=10):
+    """Fonction pour effectuer un scan des ports des hôtes découverts"""
+
+    nm = nmap.PortScanner()
+
+    port_scan_data = []
+
+    # Scanner seulement les num_hosts premiers hôtes découverts
+    for ip in host_discovery_df['IP Address'].head(num_hosts):
+        nm.scan(ip, arguments='-T4 -A -F')  
+
+        for proto in nm[ip].all_protocols():
+            lport = nm[ip][proto].keys()
+            for port in sorted(lport):
+                state = nm[ip][proto][port]['state']
+                service = nm[ip][proto][port]['name']
+                version = nm[ip][proto][port].get('version', 'N/A')
+
+                # Obtenir les détails supplémentaires si disponibles
+                script_output = []
+                if 'script' in nm[ip][proto][port]:
+                    scripts = nm[ip][proto][port]['script']
+                    for script in scripts:
+                        output = scripts[script]
+                        script_output.append(f"{script}: {output}")
+
+                port_scan_data.append([ip, port, state, service, version, "\n".join(script_output)])
+
+    # Créer une DataFrame à partir des données des ports scannés
+    port_scan_columns = ['IP Address', 'Port', 'State', 'Service', 'Version', 'Script Output']
+    port_scan_df = pd.DataFrame(port_scan_data, columns=port_scan_columns)
+    print(port_scan_df)
+    return port_scan_df
+
+def generate_html_report(host_info_df, port_info_df, filename):
+    # Convertir les DataFrames en HTML
+    host_info_html = host_info_df.to_html(index=False)
+    port_info_html = port_info_df.to_html(index=False)
+    
+    # Construire le contenu HTML
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Network Report</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; }}
+            table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #f2f2f2; }}
+            h1 {{ text-align: center; }}
+            .section-title {{ font-size: 20px; margin-top: 40px; }}
+        </style>
+    </head>
+    <body>
+        <h1>Network Report</h1>
+        
+        <div class="section">
+            <h2 class="section-title">Host Discovery Information</h2>
+            {host_info_html}
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">Port Scan Information</h2>
+            {port_info_html}
+        </div>
+    </body>
+    </html>
+    """
+
+    # Vérification du contenu HTML
+    print("Contenu HTML généré :")
+    print(html_content)
+
+    # Écrire le contenu HTML dans un fichier
+    with open(filename, 'w', encoding='utf-8') as file:
+        file.write(html_content)
+        print(f"Rapport HTML écrit dans le fichier {filename}")
+        
+# Exécuter les fonctions
+HOST_INFO = host_discovery()
+PORT_INFO = port_scan(HOST_INFO, num_hosts=10)
+
+generate_html_report(HOST_INFO, PORT_INFO, 'network_report.html')
