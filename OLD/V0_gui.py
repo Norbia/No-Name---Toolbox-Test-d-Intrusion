@@ -111,7 +111,7 @@ class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("my app")
+        self.title("SDV Projet - Pentest Toolbox")
         self.geometry("950x650")
         self.grid_columnconfigure((0, 1), weight=1)
         self.grid_rowconfigure((0, 1, 2, 3, 4), weight=1)
