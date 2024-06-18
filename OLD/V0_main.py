@@ -21,6 +21,5 @@ def main():
     scan_method_choice = scan_method_selection()
     print("Adresse IP ou nom d'hôte de la cible :", target_ip)
     print("Méthode de scan sélectionnée :", scan_method_choice)
-    # Vous pouvez stocker cette information dans un fichier de configuration ou l'utiliser directement dans les étapes suivantes.
 
 main()

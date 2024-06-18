@@ -4,6 +4,7 @@ from pycvesearch import CVESearch
 import pandas as pd
 #import time
 import subprocess
+import re
 
 # obtenir l'adresse à partir d'un nom de domaine (DNS)
 #ip_address_dns = socket.gethostbyname('cyna-it.fr')
@@ -20,269 +21,192 @@ class NetworkInfo:
     # Récupérer son adresse IP
     def __init__(self):
         self.my_ip_address = socket.gethostbyname(socket.gethostname())
-        self.my_hostname = socket.gethostbyaddr(self.my_ip_address)
-        print(f"Mon IP: {self.my_ip_address}")
-        print(f"Mon Hostname: {self.my_hostname[0]}")
-        self.host_discovery_df = None  
-
-
+        self.my_hostname = socket.gethostbyaddr(self.my_ip_address)[0]
+        self.interfaces = self.get_network_interfaces_info()
 
     def get_network_interfaces_info(self):
-        """Fonction pour récupérer les informations des interfaces réseaux de l'ordinateur local"""
+        """Fonction pour récupérer les informations des interfaces réseaux de l'ordinateur local."""
 
         # Obtenir les adresses réseau et leurs interfaces associées
         interfaces = psutil.net_if_addrs()
-
-        # Liste pour stocker les informations des interfaces réseaux
-        network_interfaces_data = []
+        network_interfaces_list = []
 
         # Parcourir chaque interface et ses adresses associées
         for interface, addresses in interfaces.items():
             for address in addresses:
-                network_interfaces_data.append({
-                    "Interface": interface,
-                    "IP Address": address.address,
-                    "Netmask" : address.netmask,
-                    #'Broadcast IP': address.broadcast
+                if address.family == socket.AF_INET:
+                    network_interfaces_list.append({
+                        "name": interface,
+                        "ip_address": address.address,
+                        "netmask" : address.netmask,
                     })
 
         # Convertir la liste de dictionnaires en DataFrame
-        interfaces_df = pd.DataFrame(network_interfaces_data)
+        #interfaces_df = pd.DataFrame(network_interfaces_data)
         # Mise en forme du DataFrame
-        interfaces_df = interfaces_df.dropna(subset=['Netmask'])
-        interfaces_df = interfaces_df.drop_duplicates(subset=['Interface'])
+        #interfaces_df = interfaces_df.dropna(subset=['Netmask'])
+        #interfaces_df = interfaces_df.drop_duplicates(subset=['Interface'])
 
         # Affiche seulement les informations de l'interface principale
-        main_interface_info = interfaces_df[interfaces_df['IP Address'] == self.my_ip_address]
-        print(main_interface_info.head())
-        return interfaces_df, main_interface_info
+        #main_interface_info = interfaces_df[interfaces_df['IP Address'] == self.my_ip_address]
+        #print(main_interface_info.head())
+        return network_interfaces_list
 
+    def print_available_interfaces(self):
+        """Affiche les interfaces réseau disponibles avec leurs adresses IP."""
+        print("Interfaces réseau disponibles:")
+        for idx, interface in enumerate(self.interfaces, start=1):
+            print(f"{idx}. {interface['name']} ({interface['ip_address']})")
+
+    def select_interface(self):
+        """Permet à l'utilisateur de choisir une interface réseau."""
+        self.print_available_interfaces()
+        choice = input("Choisissez le numéro de l'interface réseau pour la découverte d'hôtes : ")
+        try:
+            choice_idx = int(choice) - 1
+            if 0 <= choice_idx < len(self.interfaces):
+                selected_interface = self.interfaces[choice_idx]
+                return selected_interface
+            else:
+                print("Choix invalide.")
+                return None
+        except ValueError:
+            print("Choix invalide.")
+            return None
+                   
     def format_netmask_for_nmap(self, netmask):
         """Convertit le netmask au format nmap CIDR."""
-
         netmask_octets = list(map(int, netmask.split('.')))
         cidr = sum(bin(octet).count('1') for octet in netmask_octets)
         return str(cidr)
 
-    def host_discovery(self):
-        """Fonction pour faire du Host Discovery"""
+    def host_discovery(self, selected_interface, timeout=120):
+        """Effectue le host discovery en scannant le réseau de l'interface sélectionnée."""
 
-        # Récupérer les infos de l'interface principale
-        interfaces_df, main_interface_info = self.get_network_interfaces_info()
-        netmask = main_interface_info['Netmask'].values[0]
-
-        # Netmask en format CIDR pour s'adapter au format de la commande nmap
+        ip_address = selected_interface['ip_address']
+        netmask = selected_interface['netmask']
         cidr = self.format_netmask_for_nmap(netmask)
-        info_main_host = f"{self.my_ip_address}/{cidr}"
-        print(info_main_host)
+        scan_range = f"{ip_address}/{cidr}"
 
         nm = nmap.PortScanner()
+        print(f"\nScan réseau Host-Discovery en cours pour {scan_range}...")
 
-        # Scanner le réseau pour découvrir les hôtes actifs
-        print("\nScan réseau Host-Discovery en cours...")
-        nm.scan(hosts=info_main_host, arguments="-sn")
+        try:
+            nm.scan(hosts=scan_range, arguments="-sn", timeout=timeout)
+        except nmap.PortScannerError as e:
+            print(f"Erreur Nmap: {e}")
+            return None
 
         host_discovery_data = []
 
-        for host in nm.all_hosts():  # nm.all_hosts == type(class 'list')
-
+        for host in nm.all_hosts():
             hostname = nm[host]['hostnames'][0]['name'] if nm[host]['hostnames'] else None
             mac_address = nm[host]['addresses'].get('mac', 'N/A')
             status = nm[host]['status']['state']
             latency = nm[host]['status']['reason']
             vendor = nm[host]['vendor'].get(mac_address, 'Unknown')
-            print("Host\t{}\t{}".format(hostname, host, status, latency, mac_address, vendor))
 
             host_discovery_data.append([hostname, host, status, latency, mac_address, vendor])
 
-        # Créer une DataFrame à partir de la liste de données des hôtes découverts
         columns = ['Hostname', 'IP Address', 'Status', 'Latency', 'MAC Address', 'Vendor']
-        self.host_discovery_df = pd.DataFrame(host_discovery_data, columns=columns)
+        host_discovery_df = pd.DataFrame(host_discovery_data, columns=columns)
 
         # Remplacer les valeurs vides dans la colonne 'Hostname' par 'Unknown'
-        self.host_discovery_df['Hostname'] = self.host_discovery_df['Hostname'].replace("", "Unknown")
+        host_discovery_df['Hostname'] = host_discovery_df['Hostname'].replace("", "Unknown")
 
-        # Mise en forme du DataFrame
-        self.host_discovery_df = self.host_discovery_df.sort_values('IP Address', ascending=True)
-        print(self.host_discovery_df)
-        return self.host_discovery_df
-
-    def get_host_discovery_df(self):
-        if self.host_discovery_df is None:
-            self.host_discovery()
-        return self.host_discovery_df
+        host_discovery_df = host_discovery_df.sort_values('IP Address', ascending=True)
+        print(host_discovery_df)
+        return host_discovery_df
     
-    def port_scan(self, host_discovery_df, num_hosts=10):
-        """Fonction pour effectuer un scan des ports des hôtes découverts"""
+    def port_scan(self, target_ip, timeout=120):
+        """Effectue le scan de ports sur la machine ciblé."""
 
         nm = nmap.PortScanner()
+        print(f"\nScan de ports en cours pour {target_ip}...")
+
+        try:
+            nm.scan(target_ip, arguments='-T4 -O -F -sV -v -A --version-light', timeout=timeout)
+        except nmap.PortScannerError as e:
+            print(f"Erreur Nmap: {e}")
+            return None
 
         port_scan_data = []
 
-        # Scanner seulement les num_hosts premiers hôtes découverts
-        for ip in host_discovery_df['IP Address'].head(num_hosts):
-            print(f"\nDébut du scan Nmap pour :\t{ip}")
-            nm.scan(ip, arguments='-T4 -A -F')  
+        for proto in nm[target_ip].all_protocols():
+            lport = nm[target_ip][proto].keys()
+            for port in sorted(lport):
+                state = nm[target_ip][proto][port]['state']
+                service = nm[target_ip][proto][port]['name']
+                version = nm[target_ip][proto][port].get('version', 'N/A')
 
-            for proto in nm[ip].all_protocols():
-                lport = nm[ip][proto].keys()
-                for port in sorted(lport):
-                    state = nm[ip][proto][port]['state']
-                    service = nm[ip][proto][port]['name']
-                    version = nm[ip][proto][port].get('version', 'N/A')
+                # Obtenir les détails supplémentaires si disponibles
+                script_output = []
+                if 'script' in nm[target_ip][proto][port]:
+                    scripts = nm[target_ip][proto][port]['script']
+                    for script in scripts:
+                        output = scripts[script]
+                        script_output.append(f"{script}: {output}")
 
-                    # Obtenir les détails supplémentaires si disponibles
-                    script_output = []
-                    if 'script' in nm[ip][proto][port]:
-                        scripts = nm[ip][proto][port]['script']
-                        for script in scripts:
-                            output = scripts[script]
-                            script_output.append(f"{script}: {output}")
+                port_scan_data.append([target_ip, port, state, service, version, "\n".join(script_output)])
 
-                    port_scan_data.append([ip, port, state, service, version, "\n".join(script_output)])
-            print("\nAnalyse Nmap finie pour {}.".format(ip))
-    
-        # Créer une DataFrame à partir des données des ports scannés
-        port_scan_columns = ['IP Address', 'Port', 'State', 'Service', 'Version', 'Script Output']
-        port_scan_df = pd.DataFrame(port_scan_data, columns=port_scan_columns)
+        columns = ['IP Address', 'Port', 'State', 'Service', 'Version', 'Script Output']
+        port_scan_df = pd.DataFrame(port_scan_data, columns=columns)
         print(port_scan_df)
         return port_scan_df
-
-    def search_cves(self, ip_address):
-        """Fonction pour rechercher les CVE sur un hôte en utilisant pycvesearch"""
+    
+    def search_cve(self, target_ip):
+        '''Recherche les CVE pour la machine ciblée.'''
         try:
-            nm = nmap.PortScanner()
-            nm.scan(hosts=ip_address, arguments='--script vulners')
-            cves_output = nm[ip_address]['script']['vulners']
+            cve_result = subprocess.run(['nmap', '--script', 'vuln', target_ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-            cves = []
-            for cve_id in cves_output:
-                cve_details = cve_search.id(cve_id)
-                cves.append({
-                    'CVE': cve_id,
-                    'CVSS': cve_details.get('cvss', 'N/A'),
-                    'Summary': cve_details.get('summary', 'N/A')
-                })
-            return cves
-        except Exception as e:
-            print(f"Erreur lors de la recherche de CVEs sur {ip_address}: {e}")
+            if cve_result.returncode != 0:
+                print(f"Erreur lors de l'exécution de Nmap sur {target_ip}. Retour du processus : {cve_result.returncode}")
+                print(f"Erreur de sortie : {cve_result.stderr}")
+                return []
+            
+            # Afficher la sortie brute sans traitement supplémentaire
+            print("Sortie brute de la commande Nmap :")
+            print(cve_result.stdout)
+
             return []
 
-    def show_cves_details(self, cves):
-        """Fonction pour afficher les détails des CVE"""
-        if cves:
-            print("CVEs trouvées sur l'hôte :")
-            for cve in cves:
-                print(f"CVE : {cve['CVE']}")
-                print(f"CVSS : {cve['CVSS']}")
-                print(f"Summary : {cve['Summary']}\n")
+        except Exception as e:
+            print(f"Erreur lors de la recherche de CVEs sur {target_ip}: {e}")
+            return []    
+
+class CLIInteraction:
+    def __init__(self):
+        self.network_info = NetworkInfo()
+
+    def run(self):
+        print("\nQue souhaitez-vous faire ?")
+        print("1. Effectuer une découverte d'hôtes")
+        print("2. Cibler une machine spécifique pour un scan de ports")
+        print("3. Quitter")
+        choice = input("Choix : ")
+
+        match choice:
+            case '1':
+                interface = self.network_info.select_interface()
+                if interface:
+                    self.network_info.host_discovery(interface)
+            case '2':
+                target_ip = input("Entrez l'adresse IP de la machine à cibler : ")
+                self.network_info.port_scan(target_ip)
+                self.ask_for_cves_search(target_ip)
+            case '3':
+                print("\n[x] Fermeture du programme !")
+                sys.exit()
+            case _:
+                print("Choix invalide. Veuillez choisir une option valide.")
+
+        #self.network_info.generate_html_report(host_info_df, port_info_df, 'network_report.html')
+
+    def ask_for_cves_search(self, target_ip):
+        choice = input("\nVoulez-vous rechercher des CVE pour cette machine ? (o/n) : ")
+        if choice.lower() == 'o':
+            self.network_info.search_cve(target_ip)
         else:
-            print("Aucune CVE trouvée.")
-
-    def parse_cves_output(self, output):
-        """Fonction pour analyser les résultats de recherche de CVE"""
-
-        cves_details = {}
-        lines = output.split('\n')
-        current_cve = None
-
-        for line in lines:
-            if 'Nmap scan report for' in line:
-                # Nouvel hôte trouvé, réinitialiser la CVE courante
-                current_cve = None
-            elif 'VULNERABLE' in line:
-                # Ligne contenant une CVE
-                parts = line.split()
-                cve = parts[0]
-                if cve.startswith('CVE-'):
-                    description = " ".join(parts[1:])
-                    cves_details[cve] = {
-                        'description': description,
-                        'cvss_score': None,
-                        'cvss_vector': None,
-                        'exploit': False
-                    }
-                    current_cve = cve
-            elif 'CVSS' in line:
-                # Ligne contenant des détails CVSS
-                parts = line.split()
-                if current_cve and len(parts) >= 3:
-                    cves_details[current_cve]['cvss_score'] = parts[1]
-                    cves_details[current_cve]['cvss_vector'] = parts[2]
-            elif 'Available exploits' in line:
-                # Ligne contenant des détails sur l'exploit
-                if current_cve:
-                    cves_details[current_cve]['exploit'] = True
-
-        return cves_details
-
-    def generate_html_report(self, host_info_df, port_info_df, filename):
-        # Convertir les DataFrames en HTML
-        host_info_html = host_info_df.to_html(index=False)
-        port_info_html = port_info_df.to_html(index=False)
-    
-        # Construire le contenu HTML
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Network Report</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; }}
-                table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
-                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                th {{ background-color: #f2f2f2; }}
-                h1 {{ text-align: center; }}
-                .section-title {{ font-size: 20px; margin-top: 40px; }}
-            </style>
-        </head>
-        <body>
-            <h1>Network Report</h1>
-        
-            <div class="section">
-                <h2 class="section-title">Host Discovery Information</h2>
-                {host_info_html}
-            </div>
-        
-            <div class="section">
-                <h2 class="section-title">Port Scan Information</h2>
-                {port_info_html}
-            </div>
-        </body>
-        </html>
-        """
-
-        # Vérification du contenu HTML
-        print("Contenu HTML généré :")
-        print(html_content)
-
-        # Écrire le contenu HTML dans un fichier
-        with open(filename, 'w', encoding='utf-8') as file:
-            file.write(html_content)
-            print(f"Rapport HTML écrit dans le fichier {filename}")
+            print("Aucune recherche de CVE effectuée.")
 
 
-def main():
-    """Fonction principale"""
-    network_info = NetworkInfo()
-    host_info_df = network_info.host_discovery()
-    port_info_df = network_info.port_scan(host_info_df, num_hosts=10)
-
-    for ip_address in host_info_df['IP Address']:
-        print(f"Recherche de CVE sur {ip_address}...")
-        cves = network_info.search_cves(ip_address)
-        network_info.show_cves_details(cves)
-
-    #network_info.generate_html_report(host_info_df, port_info_df, 'network_report.html')
-
-# Exécuter les fonctions
-#HOST_INFO = host_discovery()
-#PORT_INFO = port_scan(HOST_INFO, num_hosts=10)
-#generate_html_report(HOST_INFO, PORT_INFO, 'network_report.html')
-
-if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:  
-        print("\n[x] Fermeture du programme !")
-        sys.exit()
