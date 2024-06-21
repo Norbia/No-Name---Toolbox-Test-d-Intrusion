@@ -18,6 +18,7 @@ import re
 #print(location_info)
 
 class NetworkInfo:
+    """Fonction principale du programme permettant de faire du scan réseau"""
     # Récupérer son adresse IP
     def __init__(self):
         self.my_ip_address = socket.gethostbyname(socket.gethostname())
@@ -58,7 +59,7 @@ class NetworkInfo:
         for idx, interface in enumerate(self.interfaces, start=1):
             print(f"{idx}. {interface['name']} ({interface['ip_address']})")
 
-    def select_interface(self):
+    def select_interface(self, interface_name):
         """Permet à l'utilisateur de choisir une interface réseau."""
         self.print_available_interfaces()
         choice = input("Choisissez le numéro de l'interface réseau pour la découverte d'hôtes : ")
@@ -82,42 +83,46 @@ class NetworkInfo:
 
     def host_discovery(self, selected_interface, timeout=120):
         """Effectue le host discovery en scannant le réseau de l'interface sélectionnée."""
-
-        ip_address = selected_interface['ip_address']
-        netmask = selected_interface['netmask']
-        cidr = self.format_netmask_for_nmap(netmask)
-        scan_range = f"{ip_address}/{cidr}"
-
-        nm = nmap.PortScanner()
-        print(f"\nScan réseau Host-Discovery en cours pour {scan_range}...")
-
         try:
-            nm.scan(hosts=scan_range, arguments="-sn", timeout=timeout)
-        except nmap.PortScannerError as e:
-            print(f"Erreur Nmap: {e}")
+            ip_address = selected_interface['ip_address']
+            netmask = selected_interface['netmask']
+            cidr = self.format_netmask_for_nmap(netmask)
+            scan_range = f"{ip_address}/{cidr}"
+
+            nm = nmap.PortScanner()
+            print(f"\nScan réseau Host-Discovery en cours pour {scan_range}...")
+
+            try:
+                nm.scan(hosts=scan_range, arguments="-sn", timeout=timeout)
+            except nmap.PortScannerError as e:
+                print(f"Erreur Nmap: {e}")
+                return None
+
+            host_discovery_data = []
+
+            for host in nm.all_hosts():
+                hostname = nm[host]['hostnames'][0]['name'] if nm[host]['hostnames'] else None
+                mac_address = nm[host]['addresses'].get('mac', 'N/A')
+                status = nm[host]['status']['state']
+                latency = nm[host]['status']['reason']
+                vendor = nm[host]['vendor'].get(mac_address, 'Unknown')
+
+                host_discovery_data.append([hostname, host, status, latency, mac_address, vendor])
+
+            columns = ['Hostname', 'IP Address', 'Status', 'Latency', 'MAC Address', 'Vendor']
+            host_discovery_df = pd.DataFrame(host_discovery_data, columns=columns)
+
+            # Remplacer les valeurs vides dans la colonne 'Hostname' par 'Unknown'
+            host_discovery_df['Hostname'] = host_discovery_df['Hostname'].replace("", "Unknown")
+
+            host_discovery_df = host_discovery_df.sort_values('IP Address', ascending=True)
+            print(host_discovery_df)
+            return host_discovery_df
+        
+        except Exception as e:
+            print(f"Erreur lors du host discovery sur {selected_interface}: {e}")
             return None
 
-        host_discovery_data = []
-
-        for host in nm.all_hosts():
-            hostname = nm[host]['hostnames'][0]['name'] if nm[host]['hostnames'] else None
-            mac_address = nm[host]['addresses'].get('mac', 'N/A')
-            status = nm[host]['status']['state']
-            latency = nm[host]['status']['reason']
-            vendor = nm[host]['vendor'].get(mac_address, 'Unknown')
-
-            host_discovery_data.append([hostname, host, status, latency, mac_address, vendor])
-
-        columns = ['Hostname', 'IP Address', 'Status', 'Latency', 'MAC Address', 'Vendor']
-        host_discovery_df = pd.DataFrame(host_discovery_data, columns=columns)
-
-        # Remplacer les valeurs vides dans la colonne 'Hostname' par 'Unknown'
-        host_discovery_df['Hostname'] = host_discovery_df['Hostname'].replace("", "Unknown")
-
-        host_discovery_df = host_discovery_df.sort_values('IP Address', ascending=True)
-        print(host_discovery_df)
-        return host_discovery_df
-    
     def port_scan(self, target_ip, timeout=120):
         """Effectue le scan de ports sur la machine ciblé."""
 
@@ -125,7 +130,7 @@ class NetworkInfo:
         print(f"\nScan de ports en cours pour {target_ip}...")
 
         try:
-            nm.scan(target_ip, arguments='-T4 -O -F -sV -v -A --version-light', timeout=timeout)
+            nm.scan(target_ip, arguments='-T4 -O -F -sV -v -A -sC --version-light', timeout=timeout)
         except nmap.PortScannerError as e:
             print(f"Erreur Nmap: {e}")
             return None
@@ -173,40 +178,3 @@ class NetworkInfo:
         except Exception as e:
             print(f"Erreur lors de la recherche de CVEs sur {target_ip}: {e}")
             return []    
-
-class CLIInteraction:
-    def __init__(self):
-        self.network_info = NetworkInfo()
-
-    def run(self):
-        print("\nQue souhaitez-vous faire ?")
-        print("1. Effectuer une découverte d'hôtes")
-        print("2. Cibler une machine spécifique pour un scan de ports")
-        print("3. Quitter")
-        choice = input("Choix : ")
-
-        match choice:
-            case '1':
-                interface = self.network_info.select_interface()
-                if interface:
-                    self.network_info.host_discovery(interface)
-            case '2':
-                target_ip = input("Entrez l'adresse IP de la machine à cibler : ")
-                self.network_info.port_scan(target_ip)
-                self.ask_for_cves_search(target_ip)
-            case '3':
-                print("\n[x] Fermeture du programme !")
-                sys.exit()
-            case _:
-                print("Choix invalide. Veuillez choisir une option valide.")
-
-        #self.network_info.generate_html_report(host_info_df, port_info_df, 'network_report.html')
-
-    def ask_for_cves_search(self, target_ip):
-        choice = input("\nVoulez-vous rechercher des CVE pour cette machine ? (o/n) : ")
-        if choice.lower() == 'o':
-            self.network_info.search_cve(target_ip)
-        else:
-            print("Aucune recherche de CVE effectuée.")
-
-

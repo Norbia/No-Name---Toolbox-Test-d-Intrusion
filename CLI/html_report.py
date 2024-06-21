@@ -20,7 +20,7 @@ class HTMLReportGenerator:
             </style>
         </head>
         <body>
-            <h1>Network Report</h1>
+            <h1>Projet-SDV Toolbox Test d'Intrusion : Rapport</h1>
         
             <div class="section">
                 <h2 class="section-title">Découverte d'Hôtes actifs</h2>
