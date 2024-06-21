@@ -74,10 +74,11 @@ class HostDiscoveryFrame(customtkinter.CTkFrame):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=0)
         self.grid_rowconfigure(1, weight=0)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(2, weight=0)
+        self.grid_rowconfigure(3, weight=1)
 
         self.label = customtkinter.CTkLabel(self, text="Click 'Scan now' to perform host discovery.")
-        self.label.grid(row=0, rowspan=5, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
+        self.label.grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
 
         self.table_frame = None
         self.scan_button = customtkinter.CTkButton(self, text="Scan now", command=self.start_host_discovery)
@@ -87,6 +88,7 @@ class HostDiscoveryFrame(customtkinter.CTkFrame):
         self.details_text = None
         self.scan_ports_button = None
         self.port_scan_results = {}
+        self.cve_results = {}
 
     def start_host_discovery(self):
         """Fonction pour démarrer la découverte des hôtes"""
@@ -152,7 +154,7 @@ class HostDiscoveryFrame(customtkinter.CTkFrame):
         self.details_text = customtkinter.CTkTextbox(self, height=10)
         self.details_text.insert("1.0", detail_text)
         self.details_text.configure(state="disabled", font=("Arial", 12))
-        self.details_text.grid(row=2, column=0, columnspan=1, padx=10, pady=10, sticky="nsew")
+        self.details_text.grid(row=2, rowspan= 3, column=0, columnspan=1, padx=10, pady=10, sticky="nsew")
 
         ip_address = machine_details['IP Address']
 
@@ -166,6 +168,9 @@ class HostDiscoveryFrame(customtkinter.CTkFrame):
 
         self.scan_ports_button = customtkinter.CTkButton(self, text="Scan Ports", command=lambda: self.scan_ports(machine_details))
         self.scan_ports_button.grid(row=2, column=0, columnspan=1, padx=20, pady=20, sticky="ne")
+
+        self.search_cve_button = customtkinter.CTkButton(self, text="Search CVE", command=lambda: self.search_cve(machine_details))
+        self.search_cve_button.grid(row=3, column=0, columnspan=1, padx=20, pady=20, sticky="ne")
 
     def scan_ports(self, machine_details):
         """Function to scan ports of the selected machine"""
@@ -204,6 +209,35 @@ class HostDiscoveryFrame(customtkinter.CTkFrame):
             self.details_text.configure(state="normal")
             self.details_text.insert("end", f"\n\n{result_text}")
             self.details_text.configure(state="disabled")
+
+    def search_cve(self, machine_details):
+        """Search for CVEs for the selected machine"""
+        ip_address = machine_details['IP Address']
+        if ip_address in self.cve_results:
+            cve_list = self.cve_results[ip_address]
+            self.display_cve_results(cve_list)
+        else:
+            self.details_text.configure(state="normal")
+            self.details_text.insert("end", "\n\nSearching for CVEs...")
+            self.details_text.configure(state="disabled")
+            search_thread = threading.Thread(target=self.perform_cve_search, args=(ip_address,))
+            search_thread.start()
+
+    def perform_cve_search(self, ip_address):
+        """Perform CVE search and update the UI"""
+        cve_list = self.app.network_info.search_cve(ip_address)
+        self.cve_results[ip_address] = cve_list
+        self.display_cve_results(cve_list)
+
+    def display_cve_results(self, cve_list):
+        """Display CVE results"""
+        self.details_text.configure(state="normal")
+        if cve_list:
+            cve_text = "\n\nCVEs found:\n" + "\n".join(cve_list)
+        else:
+            cve_text = "\n\nNo CVEs found."
+        self.details_text.insert("end", cve_text)
+        self.details_text.configure(state="disabled")    
 
 class MainFrame(customtkinter.CTkFrame):
     """Main frame for displaying content"""
