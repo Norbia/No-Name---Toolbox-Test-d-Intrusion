@@ -1,5 +1,8 @@
 import sys
 from cli_interaction import CLIInteraction
+from rich.console import Console
+
+console = Console()
 
 def main():
     cli = CLIInteraction()
@@ -10,5 +13,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n[x] Fermeture du programme !")
+        console.print("\n[x] Fermeture du programme !", style="bold blue")
         sys.exit()
