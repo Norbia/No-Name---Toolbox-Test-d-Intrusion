@@ -11,6 +11,8 @@ from rich.table import Table
 console = Console()
 
 class NetworkInfo:
+    """Fonction principale du programme permettant de faire du scan réseau"""
+    # Récupérer son adresse IP
     def __init__(self):
         self.my_ip_address = socket.gethostbyname(socket.gethostname())
         self.my_hostname = socket.gethostbyaddr(self.my_ip_address)[0]
@@ -34,7 +36,8 @@ class NetworkInfo:
         for idx, interface in enumerate(self.interfaces, start=1):
             console.print(f"{idx}. {interface['name']} ({interface['ip_address']})", style="green")
 
-    def select_interface(self):
+    def select_interface(self, interface_name):
+        """Permet à l'utilisateur de choisir une interface réseau."""
         self.print_available_interfaces()
         if len(self.interfaces) == 1:
             console.print(f"Interface unique détectée : {self.interfaces[0]['name']} ({self.interfaces[0]['ip_address']})", style="bold green")
@@ -59,37 +62,46 @@ class NetworkInfo:
         return str(cidr)
 
     def host_discovery(self, selected_interface, timeout=120):
-        ip_address = selected_interface['ip_address']
-        netmask = selected_interface['netmask']
-        cidr = self.format_netmask_for_nmap(netmask)
-        scan_range = f"{ip_address}/{cidr}"
-
-        nm = nmap.PortScanner()
-        console.print(f"\nScan réseau Host-Discovery en cours pour {scan_range}...", style="bold yellow")
-
+        """Effectue le host discovery en scannant le réseau de l'interface sélectionnée."""
         try:
-            nm.scan(hosts=scan_range, arguments="-sn", timeout=timeout)
-        except nmap.PortScannerError as e:
-            console.print(f"Erreur Nmap: {e}", style="bold red")
-            return None
+            ip_address = selected_interface['ip_address']
+            netmask = selected_interface['netmask']
+            cidr = self.format_netmask_for_nmap(netmask)
+            scan_range = f"{ip_address}/{cidr}"
 
-        host_discovery_data = []
-        for host in nm.all_hosts():
-            hostname = nm[host]['hostnames'][0]['name'] if nm[host]['hostnames'] else None
-            mac_address = nm[host]['addresses'].get('mac', 'N/A')
-            status = nm[host]['status']['state']
-            latency = nm[host]['status']['reason']
-            vendor = nm[host]['vendor'].get(mac_address, 'Unknown')
-            host_discovery_data.append([hostname, host, status, latency, mac_address, vendor])
+            nm = nmap.PortScanner()
+            console.print(f"\nScan réseau Host-Discovery en cours pour {scan_range}...", style="bold yellow")
 
-        columns = ['Hostname', 'IP Address', 'Status', 'Latency', 'MAC Address', 'Vendor']
-        host_discovery_df = pd.DataFrame(host_discovery_data, columns=columns)
-        host_discovery_df['Hostname'] = host_discovery_df['Hostname'].replace("", "Unknown")
-        host_discovery_df = host_discovery_df.sort_values('IP Address', ascending=True)
+            try:
+                nm.scan(hosts=scan_range, arguments="-sn", timeout=timeout)
+            except nmap.PortScannerError as e:
+                console.print(f"Erreur Nmap: {e}", style="bold red")
+                return None
+
+            host_discovery_data = []
+            for host in nm.all_hosts():
+                hostname = nm[host]['hostnames'][0]['name'] if nm[host]['hostnames'] else None
+                mac_address = nm[host]['addresses'].get('mac', 'N/A')
+                status = nm[host]['status']['state']
+                latency = nm[host]['status']['reason']
+                vendor = nm[host]['vendor'].get(mac_address, 'Unknown')
+                host_discovery_data.append([hostname, host, status, latency, mac_address, vendor])
+
+            columns = ['Hostname', 'IP Address', 'Status', 'Latency', 'MAC Address', 'Vendor']
+            host_discovery_df = pd.DataFrame(host_discovery_data, columns=columns)
+            host_discovery_df['Hostname'] = host_discovery_df['Hostname'].replace("", "Unknown")
+            host_discovery_df = host_discovery_df.sort_values('IP Address', ascending=True)
         
-        table = Table(title="Host Discovery Results")
-        for col in columns:
-            table.add_column(col, justify="center")
+            table = Table(title="Host Discovery Results")
+            for col in columns:
+                table.add_column(col, justify="center")
+
+        except Exception as e:
+            print(f"Erreur lors du host discovery sur {selected_interface}: {e}")
+            return None
+        
+    def port_scan(self, target_ip, timeout=120):
+        """Effectue le scan de ports sur la machine ciblé."""
 
         for row in host_discovery_df.itertuples(index=False):
             table.add_row(*map(str, row))
@@ -102,7 +114,7 @@ class NetworkInfo:
         console.print(f"\nScan de ports en cours pour {target_ip}...", style="bold yellow")
 
         try:
-            nm.scan(target_ip, arguments='-T4 -O -F -sV -v -A --version-light', timeout=timeout)
+            nm.scan(target_ip, arguments='-T4 -O -F -sV -v -A -sC --version-light', timeout=timeout)
         except nmap.PortScannerError as e:
             console.print(f"Erreur Nmap: {e}", style="bold red")
             return None
