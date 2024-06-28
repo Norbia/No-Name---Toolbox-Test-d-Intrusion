@@ -93,14 +93,14 @@ L'outil fournit une interface en ligne de commande interactive. Voici les étape
 
 ## Exemple de flux de travail
 1. Lancer l'outil avec python main.py.
-2. Sélectionner "1. Effectuer une découverte d'hôtes".
+2. Sélectionner : "1. Effectuer une découverte d'hôtes".
 3. Choisir une interface réseau pour scanner les hôtes.
-4. Sélectionner "2. Cibler une machine spécifique pour un scan de ports" et entrer l'adresse IP cible.
-5. Sélectionner "3. Rechercher des CVE pour une machine spécifique" et entrer l'adresse IP cible.
-6. Sélectionner "4. Exploiter une CVE spécifique" et entrer l'ID de la CVE.
+4. Sélectionner : "2. Cibler une machine spécifique pour un scan de ports" et entrer l'adresse IP cible.
+5. Sélectionner : "3. Rechercher des CVE pour une machine spécifique" et entrer l'adresse IP cible.
+6. Sélectionner : "4. Exploiter une CVE spécifique" et entrer l'ID de la CVE.
 7. Télécharger et exécuter le payload.
-8. Sélectionner "5. Générer un rapport HTML".
-9. Quitter l'outil avec "6. Quitter".
+8. Sélectionner : "5. Générer un rapport HTML".
+9. Quitter l'outil avec : "6. Quitter".
     
 ### Avertissement
 Cet outil est destiné à des fins éducatives et de test uniquement. N'utilisez cet outil que sur des réseaux et des systèmes pour lesquels vous avez une autorisation explicite. L'utilisation non autorisée de cet outil peut être illégale et entraîner des conséquences juridiques.
