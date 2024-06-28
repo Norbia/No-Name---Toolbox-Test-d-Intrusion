@@ -36,7 +36,7 @@ class NetworkInfo:
         for idx, interface in enumerate(self.interfaces, start=1):
             console.print(f"{idx}. {interface['name']} ({interface['ip_address']})", style="green")
 
-    def select_interface(self, interface_name):
+    def select_interface(self):
         """Permet à l'utilisateur de choisir une interface réseau."""
         self.print_available_interfaces()
         if len(self.interfaces) == 1:
@@ -99,15 +99,6 @@ class NetworkInfo:
         except Exception as e:
             print(f"Erreur lors du host discovery sur {selected_interface}: {e}")
             return None
-        
-    def port_scan(self, target_ip, timeout=120):
-        """Effectue le scan de ports sur la machine ciblé."""
-
-        for row in host_discovery_df.itertuples(index=False):
-            table.add_row(*map(str, row))
-
-        console.print(table)
-        return host_discovery_df
 
     def port_scan(self, target_ip, timeout=300):
         nm = nmap.PortScanner()
@@ -147,33 +138,107 @@ class NetworkInfo:
         console.print(table)
         return port_scan_df
 
-    def search_cve(self, target_ip):
+    def search_cve(self, ip_address):
         try:
-            cve_result = subprocess.run(['nmap', '--script', 'vuln', target_ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            if cve_result.returncode != 0:
-                console.print(f"Erreur lors de l'exécution de Nmap sur {target_ip}. Retour du processus : {cve_result.returncode}", style="bold red")
-                console.print(f"Erreur de sortie : {cve_result.stderr}", style="bold red")
-                return []
-            console.print("Sortie brute de la commande Nmap :", style="bold blue")
-            console.print(cve_result.stdout)
-            return []
+            console.print(f"Scan de CVE en cours pour {ip_address}...", style="bold blue")
+            nmap_command = ["nmap", "-sV", "--script", "vulners", ip_address]
+            nmap_result = subprocess.run(nmap_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if nmap_result.returncode != 0:
+                console.print(f"Erreur lors de l'exécution de Nmap pour {ip_address}. Retour du processus : {nmap_result.returncode}", style="bold red")
+                console.print(f"Erreur de sortie : {nmap_result.stderr}", style="bold red")
+                return None
+
+            console.print("Analyse des résultats Nmap...", style="bold blue")
+            nmap_output = nmap_result.stdout
+            #console.print(nmap_output, style="bold blue")
+
+            # Extraction des résultats de CVE
+            cve_data = []
+            lines = nmap_output.splitlines()
+            current_service = None
+            for line in lines:
+                if 'open' in line:
+                    parts = line.split()
+                    if len(parts) > 2:
+                        current_service = parts[2]
+                if 'CVE-' in line:
+                    parts = line.split()
+                    cve_id = parts[0]
+                    score = parts[-1]
+                    description = ' '.join(parts[1:-1])
+                    cve_id_only = description.split()[0]
+                    description_only = ' '.join(description.split()[1:])
+                    cve_data.append([cve_id_only, description_only, current_service, score])
+
+            if not cve_data:
+                console.print("Aucune CVE trouvée.", style="bold yellow")
+                return None
+
+            columns = ['CVE-ID', 'Score', 'Service', 'Description']
+            cve_df = pd.DataFrame(cve_data, columns=columns)
+
+            table = Table(title="Résultats de recherche de CVE")
+            for col in columns:
+                table.add_column(col, justify="center")
+
+            for row in cve_df.itertuples(index=False):
+                table.add_row(*map(str, row))
+
+            #console.print(table)
+            return cve_df
+
         except Exception as e:
-            console.print(f"Erreur lors de la recherche de CVEs sur {target_ip}: {e}", style="bold red")
-            return []
+            console.print(f"Erreur lors de la recherche de CVEs sur {ip_address}: {e}", style="bold red")
+            return None
 
     def exploit_cve(self, cve_id):
         try:
             exploit_result = subprocess.run(['searchsploit', '--cve', cve_id], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             if exploit_result.returncode != 0:
-                console.print(f"Erreur lors de l'exécution de searchsploit pour CVE {cve_id}. Retour du processus : {exploit_result.returncode}", style="bold red")
+                console.print(f"Erreur lors de l'exécution de searchsploit pour le CVE {cve_id}. Retour du processus : {exploit_result.returncode}", style="bold red")
                 console.print(f"Erreur de sortie : {exploit_result.stderr}", style="bold red")
-                return []
-            console.print("Sortie brute de la commande searchsploit :", style="bold blue")
-            console.print(exploit_result.stdout)
-            return exploit_result.stdout.splitlines()
+                return None
+
+            console.print("Analyse des résultats de searchsploit...", style="bold blue")
+            exploit_output = exploit_result.stdout
+            console.print(exploit_output, style="bold blue")
+
+            # Extraction des résultats pertinents
+            lines = exploit_output.splitlines()
+            exploit_data = []
+            extract = False
+            for line in lines:
+                if "Exploit Title" in line and "Path" in line:
+                    extract = True
+                    continue
+                if "Shellcodes: No Results" in line or "Exploits: No Results" in line:
+                    break
+                if extract and '|' in line:
+                    parts = line.split('|')
+                    exploit_title = parts[0].strip()
+                    exploit_path = parts[1].strip()
+                    exploit_data.append([exploit_title, exploit_path])
+
+            if not exploit_data:
+                console.print("Aucun exploit trouvé pour ce CVE.", style="bold yellow")
+                return None
+
+            columns = ['Exploit Title', 'Path']
+            exploits_df = pd.DataFrame(exploit_data, columns=columns).reset_index(drop=True)
+
+            table = Table(title=f"Résultats d'exploitation pour {cve_id}")
+            for col in columns:
+                table.add_column(col, justify="center")
+
+            for row in exploits_df.itertuples(index=False):
+                table.add_row(*map(str, row))
+
+            console.print(table)
+            return exploits_df
+
         except Exception as e:
-            console.print(f"Erreur lors de l'exploitation de CVE {cve_id}: {e}", style="bold red")
-            return []
+            console.print(f"Erreur lors de l'exploitation de la CVE {cve_id}: {e}", style="bold red")
+            return None
 
     def download_exploit(self, selected_payload, destination_folder):
         if not os.path.exists(destination_folder):
@@ -214,4 +279,3 @@ class NetworkInfo:
             console.print(f"Fichier introuvable lors de l'exécution du payload {payload_path}: {e}", style="bold red")
         except Exception as e:
             console.print(f"Erreur inattendue lors de l'exécution du payload {payload_path}: {e}", style="bold red")
-

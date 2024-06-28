@@ -12,22 +12,23 @@ class CLIInteraction:
     def __init__(self):
         self.network_info = NetworkInfo()
         self.report_generator = HTMLReport()
-        self.actions_log = []  # Initialize as an empty list to log actions
-        self.host_discovery_result = pd.DataFrame()  # Initialize as an empty DataFrame
-        self.port_scan_result = pd.DataFrame()  # Initialize as an empty DataFrame
-        self.cve_search_result = pd.DataFrame()  # Initialize as an empty DataFrame
+        self.actions_log = [] 
+        self.host_discovery_result = pd.DataFrame()  
+        self.port_scan_result = pd.DataFrame()  
+        self.cve_search_result = pd.DataFrame()  
 
     def display_welcome_message(self):
         welcome_text = """
-          ____  ______     __  ____            _           _   
-         / ___||  _ \ \   / / |  _ \ _ __ ___ (_) ___  ___| |_ 
-         \___ \| | | \ \ / /  | |_) | '__/ _ \| |/ _ \/ __| __|
-          ___) | |_| |\ V /   |  __/| | | (_) | |  __/ (__| |_ 
-         |____/|____/  \_/    |_|   |_|  \___// |\___|\___|\__|
-                                            |__/               
+            ███    ██  ██████      ███    ██  █████  ███    ███ ███████ 
+            ████   ██ ██    ██     ████   ██ ██   ██ ████  ████ ██      
+            ██ ██  ██ ██    ██     ██ ██  ██ ███████ ██ ████ ██ █████   
+            ██  ██ ██ ██    ██     ██  ██ ██ ██   ██ ██  ██  ██ ██      
+            ██   ████  ██████      ██   ████ ██   ██ ██      ██ ███████ 
+                                                                        
+                                                                        
         """
         project_name = "[bold green]Projet SDV -- Toolbox Test d'Intrusion[/bold green]"
-        subtitle = "[bold blue]Bienvenue dans l'outil de Pentest Automatique ![/bold blue]"
+        subtitle = "[bold blue]Bienvenue dans l'outil de Pentest Automatique by Hannah DELATTRE ![/bold blue]"
         
         console.print(Panel(welcome_text, box=box.ROUNDED, title=project_name, title_align="center"))
         console.print(subtitle, justify="center")
@@ -82,13 +83,14 @@ class CLIInteraction:
                     if cve_id.lower() == 'menu':
                         continue
                     payloads = self.network_info.exploit_cve(cve_id)
-                    if payloads:
-                        self.log_action(f"Exploitation de la CVE {cve_id}", payloads)
+                    if not payloads.empty:
+                        self.log_action(f"Recherche de Payload pour : {cve_id}", payloads)
                         self.display_payloads(payloads)
                 case '5':
                     self.generate_report()
                 case '6':
                     console.print("\n[x] Fermeture du programme !", style="bold blue")
+                    self.generate_report()
                     sys.exit()
                 case _:
                     console.print("Choix invalide. Veuillez choisir une option valide.", style="bold red")
@@ -103,31 +105,34 @@ class CLIInteraction:
 
     def display_payloads(self, payloads):
         console.print("\nPayloads disponibles :", style="bold blue")
-        for idx, payload in enumerate(payloads, start=1):
-            console.print(f"{idx}. {payload}", style="green")
-        console.print(f"{len(payloads) + 1}. Retour au menu principal", style="yellow")
+        if not payloads.empty: 
+            for idx, row in payloads.iterrows():
+                console.print(f"{idx + 1}. {row['Exploit Title']} | Path: {row['Path']}", style="green")
+            console.print(f"{len(payloads) + 1}. Retour au menu principal", style="yellow")
 
-        while True:
-            user_input = input("\nChoisissez le numéro du payload à télécharger (ou 'menu' pour retourner au menu principal) : ")
-            
-            if user_input.lower() == 'menu':
-                return
-            
-            try:
-                payload_choice = int(user_input)
-                if payload_choice == len(payloads) + 1:
+            while True:
+                user_input = input("\nChoisissez le numéro du payload à télécharger (ou 'menu' pour retourner au menu principal) : ")
+                
+                if user_input.lower() == 'menu':
                     return
-                elif 1 <= payload_choice <= len(payloads):
-                    selected_payload = payloads[payload_choice - 1].split('|')[1].strip()
-                    download_folder = "payloads"
-                    payload_path = self.network_info.download_exploit(selected_payload, download_folder)
-                    self.log_action(f"Téléchargement du payload {selected_payload}", payload_path)
-                    self.ask_to_execute_payload(payload_path)
-                    break
-                else:
-                    console.print("Numéro de payload invalide.", style="bold red")
-            except ValueError:
-                console.print("Entrée invalide. Veuillez entrer un numéro valide.", style="bold red")
+                
+                try:
+                    payload_choice = int(user_input)
+                    if payload_choice == len(payloads) + 1:
+                        return
+                    elif 1 <= payload_choice <= len(payloads):
+                        selected_payload = payloads.iloc[payload_choice - 1]['Path']
+                        download_folder = "payloads"
+                        payload_path = self.network_info.download_exploit(selected_payload, download_folder)
+                        self.log_action(f"Téléchargement du payload {selected_payload}", payload_path)
+                        self.ask_to_execute_payload(payload_path)
+                        break
+                    else:
+                        console.print("Numéro de payload invalide.", style="bold red")
+                except ValueError:
+                    console.print("Entrée invalide. Veuillez entrer un numéro valide.", style="bold red")
+        else:
+            console.print("Aucun exploit trouvé pour ce CVE.", style="bold yellow")
 
     def ask_to_execute_payload(self, payload_path):
             if payload_path:

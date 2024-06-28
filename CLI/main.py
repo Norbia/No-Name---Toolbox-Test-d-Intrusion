@@ -6,12 +6,14 @@ console = Console()
 
 def main():
     cli = CLIInteraction()
-    while True:
-        cli.run()
-
-if __name__ == "__main__":
     try:
-        main()
+        cli.run()
     except KeyboardInterrupt:
         console.print("\n[x] Fermeture du programme !", style="bold blue")
         sys.exit()
+
+    # Génération de rapport à la sortie du programme
+    cli.generate_report()
+
+if __name__ == "__main__":
+    main()
